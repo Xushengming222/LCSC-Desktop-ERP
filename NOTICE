@@ -1,0 +1,13 @@
+LCSC Desktop ERP is an unofficial desktop port derived from:
+https://github.com/BrokenClient/LCSC_android_erp
+
+The upstream repository states that it is licensed under the GNU General Public
+License, version 3.0 (GPL-3.0). This desktop port and its modifications are
+distributed under GPL-3.0-only. Desktop-port modifications are dated 2026-10-14.
+
+The upstream project and its authors are not affiliated with this desktop port.
+LCSC and related names are used only to identify the service this software
+supports; this project is not an official LCSC product.
+
+Third-party components bundled in binary releases retain their own licenses.
+See THIRD_PARTY_NOTICES.txt in the release archive.

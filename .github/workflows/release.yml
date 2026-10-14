@@ -1,0 +1,48 @@
+name: Build Windows release
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: windows-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install build dependencies
+        run: python -m pip install -r requirements-build.txt
+
+      - name: Install application
+        run: python -m pip install --no-deps .
+
+      - name: Check startup with isolated data
+        run: python scripts/smoke_check.py
+
+      - name: Build portable package and include licenses
+        run: python scripts/build_release.py
+
+      - name: Save build artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: LCSC-Desktop-ERP-windows-x64
+          path: release/*
+
+      - name: Attach files to GitHub Release
+        if: github.event_name == 'release'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.release.tag_name }}
+          files: |
+            release/LCSC-Desktop-ERP-windows-x64.zip
+            release/SHA256SUMS.txt

@@ -1,0 +1,40 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lcsc-desktop-erp"
+version = "1.0.0"
+description = "Unofficial desktop port of the LCSC Android ERP inventory application"
+readme = "README.md"
+requires-python = ">=3.10"
+license = "GPL-3.0-only"
+license-files = ["LICENSE"]
+dependencies = [
+    "PySide6>=6.6,<7",
+    "requests>=2.31,<3",
+    "beautifulsoup4>=4.12,<5",
+    "openpyxl>=3.1,<4",
+    "qrcode>=7.4,<9",
+    "Pillow>=10,<13",
+]
+
+[project.optional-dependencies]
+build = ["pyinstaller>=6.0,<7"]
+
+[project.gui-scripts]
+lcsc-erp = "main:main"
+
+[project.urls]
+Source = "https://github.com/Xushengming222/LCSC-Desktop-ERP"
+Issues = "https://github.com/Xushengming222/LCSC-Desktop-ERP/issues"
+Upstream = "https://github.com/BrokenClient/LCSC_android_erp"
+
+[tool.setuptools]
+py-modules = ["main"]
+
+[tool.setuptools.packages.find]
+include = ["app*"]
+
+[tool.setuptools.package-data]
+app = ["i18n/*.json"]

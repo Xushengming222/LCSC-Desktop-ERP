@@ -1,0 +1,22 @@
+This application depends on third-party software. Each component remains under
+its own license; this file is not a replacement for the relevant license text.
+
+Python dependencies:
+- PySide6 / Qt for Python: LGPL-3.0, GPL-2.0, GPL-3.0, or commercial terms,
+  depending on the component and distribution. License texts and component
+  notices are included by the upstream package; see https://doc.qt.io/qtforpython-6/licenses.html
+- shiboken6: LGPL-3.0-only OR GPL-2.0-only OR GPL-3.0-only;
+  see https://code.qt.io/cgit/pyside/pyside-setup.git/
+- requests: Apache-2.0; see https://github.com/psf/requests
+- beautifulsoup4: MIT; see https://www.crummy.com/software/BeautifulSoup/
+- openpyxl: MIT; see https://foss.heptapod.net/openpyxl/openpyxl
+- qrcode: BSD-3-Clause; see https://github.com/lincolnloop/python-qrcode
+- Pillow: MIT-CMU for the locked release build; see https://github.com/python-pillow/Pillow
+- PyInstaller (build tool; not bundled as a runtime dependency): GPL-2.0-or-later
+  with a bootloader exception; see https://github.com/pyinstaller/pyinstaller
+
+The release archive includes license files from the installed packages in the
+licenses directory, including Python and transitive dependencies. Exact package
+versions, license metadata and project URLs are recorded in BUILD-DEPENDENCIES.json.
+The application source and build scripts are available from the same release tag:
+https://github.com/Xushengming222/LCSC-Desktop-ERP
