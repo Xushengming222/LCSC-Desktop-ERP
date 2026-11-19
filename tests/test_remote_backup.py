@@ -9,6 +9,7 @@ import time
 import unittest
 from unittest.mock import patch
 
+import requests
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 from openpyxl import Workbook
@@ -99,6 +100,52 @@ class RemoteBackupTests(unittest.TestCase):
             with self.assertRaises(RemoteBackupError):
                 client.download("../secret", target)
         self.assertTrue(all(call[2]["headers"]["Authorization"] == "Bearer secret" for call in session.calls))
+
+    def test_local_proxy_tls_eof_falls_back_only_for_reads(self):
+        class BrokenProxy:
+            trust_env = True
+
+            def __init__(self):
+                self.calls = []
+                self.closed = False
+
+            def request(self, method, url, **kwargs):
+                self.calls.append(method)
+                raise requests.exceptions.SSLError("[SSL: UNEXPECTED_EOF_WHILE_READING]")
+
+            def close(self):
+                self.closed = True
+
+        account = BackupAccount("warehouse", "github", "owner", "repo", "main", "backups", "secret")
+        proxy = BrokenProxy()
+        direct = FakeSession()
+        with (patch("app.data.remote_backup.requests.Session", side_effect=[proxy, direct]) as factory,
+              patch("app.data.remote_backup.requests.utils.get_environ_proxies", return_value={"https": "http://127.0.0.1:7890"})):
+            client = GitContentsBackupClient(account)
+            self.assertEqual(client.probe(), "main")
+            self.assertTrue(proxy.closed)
+            self.assertEqual(proxy.calls, ["GET"])
+            self.assertFalse(direct.trust_env)
+            self.assertEqual(len(direct.calls), 2)
+            self.assertEqual(factory.call_count, 2)
+
+        proxy = BrokenProxy()
+        direct = FakeSession()
+        with (TemporaryDirectory() as root,
+              patch("app.data.remote_backup.requests.Session", side_effect=[proxy, direct]),
+              patch("app.data.remote_backup.requests.utils.get_environ_proxies", return_value={"https": "http://127.0.0.1:7890"})):
+            source = Path(root) / "inventory.xlsx"
+            source.write_bytes(b"workbook")
+            GitContentsBackupClient(account).upload(source)
+            self.assertEqual(proxy.calls, ["GET"])
+            self.assertIn("PUT", [call[0] for call in direct.calls])
+
+        proxy = BrokenProxy()
+        with patch("app.data.remote_backup.requests.Session", return_value=proxy) as factory:
+            client = GitContentsBackupClient(account)
+            with self.assertRaises(RemoteBackupError):
+                client._request("PUT", client._contents_url("lcsc_inventory_backup_20261119_1200.xlsx"))
+            self.assertEqual(factory.call_count, 1)
 
     def test_upload_creates_missing_backup_directory(self):
         session = FakeSession()

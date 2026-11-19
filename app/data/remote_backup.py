@@ -53,8 +53,18 @@ class GitContentsBackupClient:
     def __init__(self, account: BackupAccount, session: requests.Session | None = None) -> None:
         account.validate()
         self.account = account
+        self._owns_session = session is None
         self.session = session or requests.Session()
         self.root = f"{_API[account.provider]}/repos/{quote(account.owner)}/{quote(account.repo)}"
+
+    def _can_retry_direct(self, method: str, url: str, exc: requests.RequestException) -> bool:
+        if (method != "GET" or not self._owns_session or not self.session.trust_env or
+                not isinstance(exc, requests.exceptions.SSLError) or
+                "UNEXPECTED_EOF_WHILE_READING" not in str(exc)):
+            return False
+        proxies = requests.utils.get_environ_proxies(url)
+        proxy = requests.utils.select_proxy(url, proxies)
+        return bool(proxy and urlparse(proxy).hostname in {"127.0.0.1", "::1", "localhost"})
 
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
         token = self.account.token.strip()
@@ -69,7 +79,18 @@ class GitContentsBackupClient:
         try:
             response = self.session.request(method, url, headers=headers, timeout=(10, 60), **kwargs)
         except requests.RequestException as exc:
-            raise RemoteBackupError(str(exc).replace(token, "[redacted]")) from exc
+            if not self._can_retry_direct(method, url, exc):
+                raise RemoteBackupError(str(exc).replace(token, "[redacted]")) from exc
+            direct = requests.Session()
+            direct.trust_env = False
+            try:
+                response = direct.request(method, url, headers=headers, timeout=(10, 60), **kwargs)
+            except requests.RequestException as direct_exc:
+                direct.close()
+                detail = str(direct_exc).replace(token, "[redacted]")
+                raise RemoteBackupError(f"Proxy TLS failed; direct connection failed: {detail}") from direct_exc
+            self.session.close()
+            self.session = direct
         if not response.ok and response.status_code != 404:
             detail = ""
             try:
