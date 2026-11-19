@@ -1,8 +1,9 @@
 """Remote backup settings and account editor."""
 from __future__ import annotations
 
+from PySide6.QtCore import QItemSelectionModel
 from PySide6.QtWidgets import (
-    QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout,
+    QAbstractItemView, QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFormLayout, QHBoxLayout,
     QLabel, QLineEdit, QListWidget, QMessageBox, QPushButton, QVBoxLayout, QWidget,
 )
 
@@ -84,10 +85,17 @@ class RemoteBackupWidget(Card):
         self.multi_hint = QLabel()
         self.multi_hint.setWordWrap(True)
         self.addWidget(self.multi_hint)
+        self.retention = QCheckBox()
+        self.retention.toggled.connect(self._set_retention)
+        self.addWidget(self.retention)
+        self.retention_hint = QLabel()
+        self.retention_hint.setWordWrap(True)
+        self.addWidget(self.retention_hint)
         self.account_title = QLabel()
         self.account_title.setObjectName("h3")
         self.addWidget(self.account_title)
         self.accounts = QListWidget()
+        self.accounts.setObjectName("remoteAccountList")
         self.accounts.setMaximumHeight(135)
         self.accounts.currentRowChanged.connect(vm.select_account)
         self.addWidget(self.accounts)
@@ -124,11 +132,20 @@ class RemoteBackupWidget(Card):
         self.message.setWordWrap(True)
         self.addWidget(self.message)
         self.backups = QListWidget()
+        self.backups.setObjectName("remoteBackupList")
+        self.backups.setSelectionMode(QAbstractItemView.ExtendedSelection)
         self.backups.setMaximumHeight(150)
+        self.backups.itemSelectionChanged.connect(self._update_backup_buttons)
         self.addWidget(self.backups)
+        backup_actions = QHBoxLayout()
         self.restore_btn = OutlineButton()
         self.restore_btn.clicked.connect(self._restore)
-        self.addWidget(self.restore_btn)
+        backup_actions.addWidget(self.restore_btn)
+        self.delete_btn = OutlineButton()
+        self.delete_btn.clicked.connect(self._delete_backups)
+        backup_actions.addWidget(self.delete_btn)
+        backup_actions.addStretch()
+        self.addLayout(backup_actions)
         vm.ui_state_changed.connect(self.refresh)
         self.refresh()
 
@@ -162,12 +179,39 @@ class RemoteBackupWidget(Card):
 
     def _restore(self) -> None:
         item = self.backups.currentItem()
-        if item is None:
+        if item is None or not item.isSelected():
             return
         name = item.text()
         if QMessageBox.warning(self, tr("remote_backup"), tr("remote_restore_confirm").format(name=name),
                                QMessageBox.Yes | QMessageBox.No) == QMessageBox.Yes:
             self.vm.restore_remote(name)
+
+    def _set_retention(self, enabled: bool) -> None:
+        if enabled and QMessageBox.question(
+            self, tr("remote_backup"), tr("remote_retention_confirm"),
+            QMessageBox.Yes | QMessageBox.No,
+        ) != QMessageBox.Yes:
+            self.retention.blockSignals(True)
+            self.retention.setChecked(False)
+            self.retention.blockSignals(False)
+            return
+        self.vm.set_auto_retention(enabled)
+
+    def _delete_backups(self) -> None:
+        names = [item.text() for item in self.backups.selectedItems()]
+        if not names:
+            return
+        if QMessageBox.question(
+            self, tr("remote_backup"), tr("remote_delete_confirm").format(count=len(names)),
+            QMessageBox.Yes | QMessageBox.No,
+        ) == QMessageBox.Yes:
+            self.vm.delete_remote(names)
+
+    def _update_backup_buttons(self) -> None:
+        state = self.vm.ui_state
+        item = self.backups.currentItem()
+        self.restore_btn.setEnabled(item is not None and item.isSelected() and not state.remote_busy)
+        self.delete_btn.setEnabled(bool(self.backups.selectedItems()) and not state.remote_busy)
 
     def refresh(self) -> None:
         state = self.vm.ui_state
@@ -175,13 +219,16 @@ class RemoteBackupWidget(Card):
             return
         self.title.setText(tr("remote_backup"))
         self.summary.setText(tr("remote_summary"))
-        for checkbox, value in ((self.enabled, state.remote_enabled), (self.multi, state.remote_multi_account)):
+        for checkbox, value in ((self.enabled, state.remote_enabled), (self.multi, state.remote_multi_account),
+                                (self.retention, state.remote_auto_retention)):
             checkbox.blockSignals(True)
             checkbox.setChecked(value)
             checkbox.blockSignals(False)
         self.enabled.setText(tr("remote_enable"))
         self.multi.setText(tr("remote_multi"))
         self.multi_hint.setText(tr("remote_multi_hint"))
+        self.retention.setText(tr("remote_retention"))
+        self.retention_hint.setText(tr("remote_retention_hint"))
         self.account_title.setText(tr("remote_accounts"))
         self.accounts.blockSignals(True)
         self.accounts.clear()
@@ -197,15 +244,28 @@ class RemoteBackupWidget(Card):
         for button, label in ((self.add_btn, "remote_add_account"), (self.edit_btn, "remote_edit_account"),
                               (self.remove_btn, "remote_remove_account"), (self.upload_btn, "remote_upload"),
                               (self.pull_btn, "remote_pull"), (self.test_btn, "remote_test"),
-                              (self.restore_btn, "remote_restore")):
+                              (self.restore_btn, "remote_restore"), (self.delete_btn, "remote_delete")):
             button.setText(tr(label))
         self.last.setText(tr("remote_last_success").format(time=state.remote_last_success or tr("remote_never")))
         self.message.setText(state.remote_message)
-        self.backups.clear()
-        self.backups.addItems(row["name"] for row in state.remote_backups)
+        backup_names = [row["name"] for row in state.remote_backups]
+        current_names = [self.backups.item(index).text() for index in range(self.backups.count())]
+        if backup_names != current_names:
+            selected_names = {item.text() for item in self.backups.selectedItems()}
+            current_name = self.backups.currentItem().text() if self.backups.currentItem() else None
+            self.backups.clear()
+            self.backups.addItems(backup_names)
+            for index, name in enumerate(backup_names):
+                if name in selected_names:
+                    self.backups.item(index).setSelected(True)
+            if current_name in backup_names:
+                self.backups.setCurrentItem(self.backups.item(backup_names.index(current_name)),
+                                            QItemSelectionModel.NoUpdate)
         self.backups.setVisible(bool(state.remote_backups))
         self.restore_btn.setVisible(bool(state.remote_backups))
-        self.restore_btn.setEnabled(bool(state.remote_backups) and not state.remote_busy)
+        self.delete_btn.setVisible(bool(state.remote_backups))
+        self._update_backup_buttons()
         for button in (self.edit_btn, self.remove_btn, self.upload_btn, self.pull_btn, self.test_btn):
             button.setEnabled(bool(state.remote_accounts) and not state.remote_busy)
         self.add_btn.setEnabled(not state.remote_busy)
+        self.retention.setEnabled(not state.remote_busy)

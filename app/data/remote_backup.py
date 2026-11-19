@@ -172,6 +172,31 @@ class GitContentsBackupClient:
             raise RemoteBackupError("Backup has no downloadable content")
         Path(target).write_bytes(data)
 
+    def delete(self, name: str) -> bool:
+        """Delete one named backup, using its current blob SHA."""
+        if not BACKUP_NAME.fullmatch(name):
+            raise RemoteBackupError("Invalid backup name")
+        branch = self._branch()
+        url = self._contents_url(name)
+        current = self._request("GET", url, params={"ref": branch})
+        if current.status_code == 404:
+            return False
+        payload = {"message": f"Delete inventory backup {name}", "branch": branch,
+                   "sha": current.json()["sha"]}
+        if self.account.provider == "gitee":
+            payload["access_token"] = self.account.token.strip()
+        response = self._request("DELETE", url, json=payload)
+        if response.status_code not in (200, 204):
+            raise RemoteBackupError(f"Delete failed: HTTP {response.status_code}")
+        return True
+
+    def retain_latest(self, count: int = 5) -> int:
+        """Keep the newest timestamped backups in this account's folder."""
+        if count < 1:
+            raise ValueError("At least one backup must be retained")
+        rows = self.list_backups()
+        return sum(self.delete(row["name"]) for row in rows[count:])
+
 
 class BackupAccountsStore:
     """Persists account metadata and Windows user encrypted access tokens."""

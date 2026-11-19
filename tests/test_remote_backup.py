@@ -16,6 +16,7 @@ from PySide6.QtWidgets import QApplication
 
 from app.app_container import AppContainer
 from app.data.remote_backup import BackupAccount, BackupAccountsStore, GitContentsBackupClient, RemoteBackupError
+from app.ui.remote_backup_widget import RemoteBackupWidget
 
 
 class Response:
@@ -53,6 +54,13 @@ class FakeSession:
                 if name == ".gitkeep":
                     self.folder_exists = True
                 return Response(201)
+            if method == "DELETE":
+                if name not in self.files:
+                    return Response(404)
+                if kwargs["json"]["sha"] != "old":
+                    return Response(409)
+                del self.files[name]
+                return Response(200)
         return Response(404)
 
 
@@ -102,6 +110,98 @@ class RemoteBackupTests(unittest.TestCase):
             client.upload(source)
         self.assertIn(".gitkeep", session.files)
         self.assertTrue(session.folder_exists)
+
+    def test_retention_keeps_latest_five_and_manual_delete_is_scoped(self):
+        session = FakeSession()
+        names = [f"lcsc_inventory_backup_20261119_{hour:02d}00.xlsx" for hour in range(8)]
+        session.files = {name: b"workbook" for name in names}
+        session.files["other.xlsx"] = b"keep"
+        client = GitContentsBackupClient(
+            BackupAccount("warehouse", "github", "owner", "repo", "main", "backups", "secret"), session,
+        )
+        self.assertEqual(client.retain_latest(5), 3)
+        self.assertEqual(set(session.files), set(names[3:]) | {"other.xlsx"})
+        self.assertTrue(client.delete(names[3]))
+        self.assertFalse(client.delete(names[3]))
+        with self.assertRaises(RemoteBackupError):
+            client.delete("../other.xlsx")
+        self.assertIn("other.xlsx", session.files)
+        deletes = [call for call in session.calls if call[0] == "DELETE"]
+        self.assertTrue(all(call[2]["json"]["branch"] == "main" for call in deletes))
+
+    def test_backup_selection_survives_state_refresh(self):
+        app = QApplication.instance() or QApplication([])
+        with TemporaryDirectory() as root:
+            container = AppContainer(Path(root) / "data", project_dir=root)
+            vm = container.settings_view_model
+            widget = RemoteBackupWidget(vm)
+            try:
+                vm._remote_backups = [
+                    {"name": f"lcsc_inventory_backup_20261119_0{i}00.xlsx", "sha": "old", "size": 10}
+                    for i in range(3)
+                ]
+                vm._do_recompute()
+                widget.backups.setCurrentRow(0)
+                widget.backups.item(1).setSelected(True)
+                self.assertTrue(widget.restore_btn.isEnabled())
+                self.assertTrue(widget.delete_btn.isEnabled())
+                vm._do_recompute()
+                self.assertEqual(len(widget.backups.selectedItems()), 2)
+                self.assertEqual(widget.backups.currentRow(), 0)
+            finally:
+                widget.close()
+                for _ in range(4):
+                    app.processEvents()
+                vm._remote_timer.stop()
+                container._thread_pool.waitForDone()
+                container.close()
+
+    def test_retention_setting_prunes_on_enable_and_after_upload(self):
+        app = QApplication.instance() or QApplication([])
+        with TemporaryDirectory() as root:
+            container = AppContainer(Path(root) / "data", project_dir=root)
+            vm = container.settings_view_model
+            account = BackupAccount("warehouse", "github", "owner", "repo", "main", "backups", "test-token")
+            vm.save_account(account)
+            session = FakeSession()
+            session.files = {
+                f"lcsc_inventory_backup_20261119_{hour:02d}00.xlsx": b"old"
+                for hour in range(7)
+            }
+
+            def client(selected):
+                self.assertEqual(selected, account)
+                return GitContentsBackupClient(selected, session)
+
+            def finish():
+                deadline = time.monotonic() + 5
+                while vm.ui_state.remote_busy and time.monotonic() < deadline:
+                    app.processEvents()
+                    time.sleep(0.01)
+                self.assertFalse(vm.ui_state.remote_busy)
+
+            try:
+                with patch("app.viewmodels.settings_viewmodel.GitContentsBackupClient", client):
+                    vm.set_auto_retention(True)
+                    finish()
+                    self.assertTrue(vm.ui_state.remote_auto_retention)
+                    self.assertEqual(len(session.files), 5)
+                    vm.upload_remote()
+                    finish()
+                    self.assertEqual(len(session.files), 5)
+                    self.assertEqual(len(vm.ui_state.remote_backups), 5)
+                    chosen = vm.ui_state.remote_backups[-1]["name"]
+                    vm.delete_remote([chosen])
+                    finish()
+                    self.assertNotIn(chosen, session.files)
+                    self.assertEqual(len(vm.ui_state.remote_backups), 4)
+                self.assertTrue(BackupAccountsStore(Path(root) / "data" / "remote_backup.json").load()[1]["auto_retention"])
+            finally:
+                vm._remote_timer.stop()
+                for _ in range(4):
+                    app.processEvents()
+                container._thread_pool.waitForDone()
+                container.close()
 
     @unittest.skipUnless(os.name == "nt", "Windows DPAPI")
     def test_token_encrypted_for_current_windows_user(self):

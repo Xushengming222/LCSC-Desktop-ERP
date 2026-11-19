@@ -90,6 +90,7 @@ class SettingsUiState:
     remote_selected_index: int = 0
     remote_enabled: bool = False
     remote_multi_account: bool = False
+    remote_auto_retention: bool = False
     remote_busy: bool = False
     remote_message: str = ""
     remote_last_success: str = ""
@@ -163,6 +164,7 @@ class SettingsViewModel(ViewModel):
             remote_selected_index=int(self._remote_config.get("selected_index", 0)),
             remote_enabled=bool(self._remote_config.get("enabled", False)),
             remote_multi_account=bool(self._remote_config.get("multi_account", False)),
+            remote_auto_retention=bool(self._remote_config.get("auto_retention", False)),
             remote_busy=self._remote_busy,
             remote_message=self._remote_message,
             remote_last_success=str(self._remote_config.get("last_success", "")),
@@ -307,6 +309,12 @@ class SettingsViewModel(ViewModel):
         self._remote_config["multi_account"] = enabled
         self._save_remote()
 
+    def set_auto_retention(self, enabled: bool) -> None:
+        self._remote_config["auto_retention"] = enabled
+        self._save_remote()
+        if enabled and self._remote_accounts:
+            self.prune_remote()
+
     def _selected_account(self) -> BackupAccount:
         if not self._remote_accounts:
             raise ValueError(tr("remote_no_accounts"))
@@ -353,6 +361,8 @@ class SettingsViewModel(ViewModel):
         self._last_attempt = time.time()
         change_snapshot = self._db_connection.total_changes if self._db_connection else 0
         fingerprint_snapshot = self._data_fingerprint()
+        auto_retention = bool(self._remote_config.get("auto_retention"))
+        selected_account = self._selected_account()
 
         def work():
             with TemporaryDirectory(prefix="lcsc-remote-") as directory:
@@ -362,22 +372,42 @@ class SettingsViewModel(ViewModel):
                     raise RuntimeError(error)
                 uploaded = []
                 failures = []
+                prune_failures = []
+                selected_rows = None
                 for account in accounts:
                     try:
-                        name = GitContentsBackupClient(account).upload(path)
+                        client = GitContentsBackupClient(account)
+                        name = client.upload(path)
                         uploaded.append(f"{account.label or account.repo}: {name}")
+                        if auto_retention:
+                            try:
+                                client.retain_latest(5)
+                            except Exception as exc:
+                                prune_failures.append(f"{account.label or account.repo}: {exc}")
+                        if account == selected_account:
+                            try:
+                                selected_rows = client.list_backups()
+                            except Exception:
+                                pass
                     except Exception as exc:
                         failures.append(f"{account.label or account.repo}: {exc}")
-                return uploaded, failures
+                return uploaded, failures, prune_failures, selected_rows
 
         def done(result):
-            uploaded, failures = result
+            uploaded, failures, prune_failures, selected_rows = result
+            if selected_rows is not None:
+                self._remote_backups = selected_rows
             if not failures:
                 self._remote_config["last_success"] = datetime.now().isoformat(timespec="seconds")
                 self._remote_config["last_data_fingerprint"] = fingerprint_snapshot
                 self._last_uploaded_change = change_snapshot
                 self._save_remote()
-            return (tr("remote_upload_success") + " " + "; ".join(uploaded) if uploaded else "") + ("; ".join(failures) if failures else "")
+            message = (tr("remote_upload_success") + " " + "; ".join(uploaded) if uploaded else "")
+            if failures:
+                message += "; " + "; ".join(failures)
+            if prune_failures:
+                message += "; " + tr("remote_prune_failed").format(error="; ".join(prune_failures))
+            return message
 
         self._start_remote(work, done)
 
@@ -405,6 +435,58 @@ class SettingsViewModel(ViewModel):
             return tr("remote_list_empty") if not rows else tr("remote_list_count").format(count=len(rows))
 
         self._start_remote(lambda: GitContentsBackupClient(account).list_backups(), done)
+
+    def prune_remote(self) -> None:
+        try:
+            account = self._selected_account()
+        except Exception as exc:
+            self._remote_message = str(exc)
+            self._do_recompute()
+            return
+
+        def work():
+            client = GitContentsBackupClient(account)
+            removed = client.retain_latest(5)
+            return removed, client.list_backups()
+
+        def done(result):
+            removed, self._remote_backups = result
+            return tr("remote_pruned").format(count=removed)
+
+        self._start_remote(work, done)
+
+    def delete_remote(self, names: list[str]) -> None:
+        if not names:
+            return
+        try:
+            account = self._selected_account()
+            available = {row["name"] for row in self._remote_backups}
+            if not set(names) <= available:
+                raise ValueError(tr("remote_selection_stale"))
+        except Exception as exc:
+            self._remote_message = str(exc)
+            self._do_recompute()
+            return
+
+        def work():
+            client = GitContentsBackupClient(account)
+            removed = 0
+            failures = []
+            for name in names:
+                try:
+                    removed += client.delete(name)
+                except Exception as exc:
+                    failures.append(f"{name}: {exc}")
+            return removed, failures, client.list_backups()
+
+        def done(result):
+            removed, failures, self._remote_backups = result
+            message = tr("remote_deleted").format(count=removed)
+            if failures:
+                message += "; " + tr("remote_prune_failed").format(error="; ".join(failures))
+            return message
+
+        self._start_remote(work, done)
 
     def restore_remote(self, name: str) -> None:
         try:

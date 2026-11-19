@@ -228,7 +228,7 @@
   "settings_inventory_backup_progress": "Processing components sheet",
   "settings_import_inventory": "Import Inventory",
   "settings_import_inventory_summary": "Import from an Excel file and overwrite current inventory",
-  "settings_about_body": "<p>LCSC Desktop ERP 1.1.0 is an unofficial desktop port of <a href=\"https://github.com/BrokenClient/LCSC_android_erp\">BrokenClient/LCSC_android_erp</a>. Copyright belongs to the original authors and contributors.</p><p>This program is distributed under <a href=\"https://www.gnu.org/licenses/gpl-3.0.html\">GNU GPL v3.0</a>. You may modify and redistribute it under that license. There is no warranty. The complete license is included in the release archive.</p><p><a href=\"https://github.com/Xushengming222/LCSC-Desktop-ERP\">Desktop source and build instructions</a></p>",
+  "settings_about_body": "<p>LCSC Desktop ERP 1.2.0 is an unofficial desktop port of <a href=\"https://github.com/BrokenClient/LCSC_android_erp\">BrokenClient/LCSC_android_erp</a>. Copyright belongs to the original authors and contributors.</p><p>This program is distributed under <a href=\"https://www.gnu.org/licenses/gpl-3.0.html\">GNU GPL v3.0</a>. You may modify and redistribute it under that license. There is no warranty. The complete license is included in the release archive.</p><p><a href=\"https://github.com/Xushengming222/LCSC-Desktop-ERP\">Desktop source and build instructions</a></p>",
   "settings_about_version": "Version %1$s",
   "settings_open": "Open",
   "settings_stack_title": "Current Stack",
@@ -316,5 +316,14 @@
   "remote_list_empty": "No backups in the remote directory.",
   "remote_list_count": "Found {count} backups.",
   "remote_safety_failed": "Could not create a safety backup: {error}",
-  "remote_restore_success": "Restore complete. Previous inventory saved at: {path}"
+  "remote_restore_success": "Restore complete. Previous inventory saved at: {path}",
+  "remote_retention": "Automatically keep the latest 5 backups",
+  "remote_retention_hint": "Enabling this now removes older backups from the selected repository. After each upload, the same limit applies to every destination. You can also select multiple backups below and delete them manually.",
+  "remote_retention_confirm": "This will permanently delete all but the latest 5 backups in the selected repository, and repeat after future uploads. Enable it?",
+  "remote_delete": "Delete selected backups",
+  "remote_delete_confirm": "Permanently delete {count} selected remote backups? This cannot be undone.",
+  "remote_deleted": "Deleted {count} backups.",
+  "remote_pruned": "Removed {count} older backups; kept the latest 5.",
+  "remote_prune_failed": "Some cleanup failed: {error}",
+  "remote_selection_stale": "The backup list has changed. Pull the list again before selecting."
 }

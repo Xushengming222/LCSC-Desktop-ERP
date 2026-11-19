@@ -228,7 +228,7 @@
   "settings_inventory_backup_progress": "正在处理组件表",
   "settings_import_inventory": "导入库存",
   "settings_import_inventory_summary": "从 Excel 文件导入并覆盖当前库存",
-  "settings_about_body": "<p>LCSC Desktop ERP 1.1.0 是 <a href=\"https://github.com/BrokenClient/LCSC_android_erp\">BrokenClient/LCSC_android_erp</a> 的非官方桌面移植版。版权归原作者及各贡献者所有。</p><p>本程序按 <a href=\"https://www.gnu.org/licenses/gpl-3.0.html\">GNU GPL v3.0</a> 提供，允许依照该许可证修改和再分发，不提供任何担保。许可证全文亦随发行包提供。</p><p><a href=\"https://github.com/Xushengming222/LCSC-Desktop-ERP\">桌面版源码与构建说明</a></p>",
+  "settings_about_body": "<p>LCSC Desktop ERP 1.2.0 是 <a href=\"https://github.com/BrokenClient/LCSC_android_erp\">BrokenClient/LCSC_android_erp</a> 的非官方桌面移植版。版权归原作者及各贡献者所有。</p><p>本程序按 <a href=\"https://www.gnu.org/licenses/gpl-3.0.html\">GNU GPL v3.0</a> 提供，允许依照该许可证修改和再分发，不提供任何担保。许可证全文亦随发行包提供。</p><p><a href=\"https://github.com/Xushengming222/LCSC-Desktop-ERP\">桌面版源码与构建说明</a></p>",
   "settings_about_version": "版本 %1$s",
   "settings_open": "打开",
   "settings_stack_title": "当前技术栈",
@@ -316,5 +316,14 @@
   "remote_list_empty": "远程目录中没有备份。",
   "remote_list_count": "找到 {count} 份备份。",
   "remote_safety_failed": "无法创建恢复前保护备份：{error}",
-  "remote_restore_success": "恢复成功。恢复前库存已保存在：{path}"
+  "remote_restore_success": "恢复成功。恢复前库存已保存在：{path}",
+  "remote_retention": "自动保留最新 5 份备份",
+  "remote_retention_hint": "开启后立即清理当前仓库中的旧备份；此后每次上传成功，会分别清理对应仓库。也可在下方多选备份并手动删除。",
+  "remote_retention_confirm": "开启后将永久删除当前仓库中除最新 5 份外的旧备份，此后每次上传也会自动清理。确定开启？",
+  "remote_delete": "删除选中备份",
+  "remote_delete_confirm": "确定永久删除选中的 {count} 份远程备份？此操作无法撤销。",
+  "remote_deleted": "已删除 {count} 份备份。",
+  "remote_pruned": "已清理 {count} 份旧备份，保留最新 5 份。",
+  "remote_prune_failed": "部分清理失败：{error}",
+  "remote_selection_stale": "备份列表已变化，请重新拉取后选择。"
 }

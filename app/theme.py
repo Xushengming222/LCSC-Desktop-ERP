@@ -61,6 +61,28 @@ QListWidget#navList::item:hover {{
     background: {SURFACE_VARIANT};
 }}
 
+QListWidget#remoteAccountList, QListWidget#remoteBackupList {{
+    background: {SURFACE};
+    color: {ON_SURFACE};
+    border: 1px solid {OUTLINE_VARIANT};
+    border-radius: 6px;
+    outline: none;
+}}
+QListWidget#remoteAccountList::item, QListWidget#remoteBackupList::item {{
+    color: {ON_SURFACE};
+    padding: 7px 10px;
+    border-left: 3px solid transparent;
+}}
+QListWidget#remoteAccountList::item:selected, QListWidget#remoteBackupList::item:selected {{
+    background: {PRIMARY_CONTAINER};
+    color: {PRIMARY};
+    border-left: 3px solid {PRIMARY};
+    font-weight: 600;
+}}
+QListWidget#remoteAccountList::item:hover:!selected, QListWidget#remoteBackupList::item:hover:!selected {{
+    background: {SURFACE_VARIANT};
+}}
+
 QStackedWidget {{ background: {BACKGROUND}; }}
 
 QScrollArea {{ background: transparent; border: none; }}
