@@ -55,7 +55,7 @@ python -m pip install --no-deps .
 python scripts/build_release.py
 ```
 
-构建使用 Python 3.12 和固定版本的依赖。可执行文件目录会生成在 `dist/`，完整发行压缩包和校验文件会生成在 `release/`。创建形如 `v1.2.0` 的 GitHub Release 后，GitHub Actions 会构建 Windows x64 发行包并附加到该 Release；GitHub 同时提供该标签对应的源码压缩包。
+构建使用 Python 3.12 和固定版本的依赖。可执行文件目录会生成在 `dist/`，完整发行压缩包和校验文件会生成在 `release/`。构建脚本还会检查打包程序能否初始化 SSL。创建形如 `v1.2.1` 的 GitHub Release 后，GitHub Actions 会构建 Windows x64 发行包并附加到该 Release；GitHub 同时提供该标签对应的源码压缩包。
 
 可运行 `python scripts/smoke_check.py` 检查程序启动、五个页面、中英文资源和打包程序的配置路径；`python -m unittest discover -s tests` 检查远程传输、加密存储及手机新版工作簿导入。检查使用独立临时目录，不读取现有库存数据。
 

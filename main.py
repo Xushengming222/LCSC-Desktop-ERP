@@ -56,6 +56,16 @@ def _resolve_data_dir() -> Path:
 
 
 def main() -> int:
+    if "--self-test-ssl" in sys.argv:
+        # A frozen build can start normally even when its SSL runtime data is
+        # missing. Check this before displaying the UI or touching user data.
+        import ssl
+        try:
+            ssl.create_default_context()
+        except Exception:
+            return 1
+        return 0
+
     logging.basicConfig(
         level=logging.INFO,
         format="%(asctime)s %(levelname)s %(name)s: %(message)s",

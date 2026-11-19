@@ -228,7 +228,7 @@
   "settings_inventory_backup_progress": "正在处理组件表",
   "settings_import_inventory": "导入库存",
   "settings_import_inventory_summary": "从 Excel 文件导入并覆盖当前库存",
-  "settings_about_body": "<p>LCSC Desktop ERP 1.2.0 是 <a href=\"https://github.com/BrokenClient/LCSC_android_erp\">BrokenClient/LCSC_android_erp</a> 的非官方桌面移植版。版权归原作者及各贡献者所有。</p><p>本程序按 <a href=\"https://www.gnu.org/licenses/gpl-3.0.html\">GNU GPL v3.0</a> 提供，允许依照该许可证修改和再分发，不提供任何担保。许可证全文亦随发行包提供。</p><p><a href=\"https://github.com/Xushengming222/LCSC-Desktop-ERP\">桌面版源码与构建说明</a></p>",
+  "settings_about_body": "<p>LCSC Desktop ERP 1.2.1 是 <a href=\"https://github.com/BrokenClient/LCSC_android_erp\">BrokenClient/LCSC_android_erp</a> 的非官方桌面移植版。版权归原作者及各贡献者所有。</p><p>本程序按 <a href=\"https://www.gnu.org/licenses/gpl-3.0.html\">GNU GPL v3.0</a> 提供，允许依照该许可证修改和再分发，不提供任何担保。许可证全文亦随发行包提供。</p><p><a href=\"https://github.com/Xushengming222/LCSC-Desktop-ERP\">桌面版源码与构建说明</a></p>",
   "settings_about_version": "版本 %1$s",
   "settings_open": "打开",
   "settings_stack_title": "当前技术栈",

@@ -4,9 +4,11 @@ from __future__ import annotations
 import hashlib
 import importlib.metadata as metadata
 import json
+import os
 from pathlib import Path
 import re
 import shutil
+import ssl
 import subprocess
 import sys
 import zipfile
@@ -55,12 +57,18 @@ def copy_licenses(destination: Path) -> None:
 def main() -> None:
     if sys.platform != "win32":
         raise SystemExit("Build the Windows package on Windows.")
+    # Some Python distributions patch ssl.py to load a PEM beside itself.
+    # PyInstaller freezes ssl.py but does not discover that data file.
+    ssl_data = Path(ssl.__file__).with_name("codex-rejected-cas.pem")
+    extra_data = ["--add-data", f"{ssl_data}{os.pathsep}."] if ssl_data.is_file() else []
     subprocess.run([
         sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean",
         "--onedir", "--windowed", "--name", NAME,
         "--collect-data", "app", "--distpath", "dist", "--workpath", "build/pyinstaller",
-        "--specpath", "build", "main.py",
+        "--specpath", "build", *extra_data, "main.py",
     ], cwd=ROOT, check=True)
+    subprocess.run([str(ROOT / "dist" / NAME / f"{NAME}.exe"), "--self-test-ssl"],
+                   cwd=ROOT, check=True, timeout=30)
     assemble_release()
 
 
@@ -76,7 +84,7 @@ def assemble_release() -> None:
         shutil.copy2(ROOT / filename, package / filename)
     copy_licenses(package / "licenses")
     (package / "README.txt").write_text(
-        "LCSC Desktop ERP 1.2.0\n\n"
+        "LCSC Desktop ERP 1.2.1\n\n"
         "Extract the entire folder, then run LCSC-Desktop-ERP.exe.\n"
         "Keep the _internal folder beside the executable.\n"
         "Data and settings: %APPDATA%\\LCSC_ERP\n"
