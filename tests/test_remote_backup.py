@@ -49,7 +49,12 @@ class FakeSession:
             if name == "backups":
                 return Response(200, [{"name": n, "type": "file", "sha": "old", "size": len(v)} for n, v in self.files.items()]) if self.folder_exists else Response(404)
             if method == "GET":
-                return Response(200, {"content": base64.b64encode(self.files[name]).decode(), "encoding": "base64", "sha": "old"}) if name in self.files else Response(404)
+                if name not in self.files:
+                    return Response(404)
+                response = Response(200, {"content": base64.b64encode(self.files[name]).decode(), "encoding": "base64", "sha": "old"})
+                if kwargs["headers"]["Accept"] == "application/vnd.github.raw+json":
+                    response.content = self.files[name]
+                return response
             if method == "PUT":
                 self.files[name] = base64.b64decode(kwargs["json"]["content"])
                 if name == ".gitkeep":
@@ -95,8 +100,12 @@ class RemoteBackupTests(unittest.TestCase):
             self.assertRegex(name, r"^lcsc_inventory_backup_\d{8}_\d{4}\.xlsx$")
             self.assertEqual([item["name"] for item in client.list_backups()], [name])
             target = Path(root) / "output.xlsx"
+            calls_before_download = len(session.calls)
             client.download(name, target)
             self.assertEqual(target.read_bytes(), source.read_bytes())
+            file_calls = [call for call in session.calls[calls_before_download:] if call[1].endswith(name)]
+            self.assertEqual(len(file_calls), 1)
+            self.assertEqual(file_calls[0][2]["headers"]["Accept"], "application/vnd.github.raw+json")
             with self.assertRaises(RemoteBackupError):
                 client.download("../secret", target)
         self.assertTrue(all(call[2]["headers"]["Authorization"] == "Bearer secret" for call in session.calls))
@@ -139,6 +148,29 @@ class RemoteBackupTests(unittest.TestCase):
             GitContentsBackupClient(account).upload(source)
             self.assertEqual(proxy.calls, ["GET"])
             self.assertIn("PUT", [call[0] for call in direct.calls])
+
+        class InterruptedDirect:
+            trust_env = False
+
+            def __init__(self):
+                self.closed = False
+
+            def request(self, method, url, **kwargs):
+                raise requests.exceptions.SSLError("[SSL: UNEXPECTED_EOF_WHILE_READING]")
+
+            def close(self):
+                self.closed = True
+
+        proxy = BrokenProxy()
+        interrupted = InterruptedDirect()
+        final = FakeSession()
+        with (patch("app.data.remote_backup.requests.Session", side_effect=[proxy, interrupted, final]) as factory,
+              patch("app.data.remote_backup.requests.utils.get_environ_proxies", return_value={"https": "http://127.0.0.1:7890"}),
+              patch("app.data.remote_backup.time.sleep")):
+            self.assertEqual(GitContentsBackupClient(account).probe(), "main")
+            self.assertTrue(interrupted.closed)
+            self.assertFalse(final.trust_env)
+            self.assertEqual(factory.call_count, 3)
 
         proxy = BrokenProxy()
         with patch("app.data.remote_backup.requests.Session", return_value=proxy) as factory:

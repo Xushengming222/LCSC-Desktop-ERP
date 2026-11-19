@@ -7,6 +7,7 @@ from datetime import datetime
 import json
 from pathlib import Path
 import re
+import time
 from urllib.parse import quote, urlparse
 
 import requests
@@ -66,6 +67,18 @@ class GitContentsBackupClient:
         proxy = requests.utils.select_proxy(url, proxies)
         return bool(proxy and urlparse(proxy).hostname in {"127.0.0.1", "::1", "localhost"})
 
+    @staticmethod
+    def _transient_read_error(exc: requests.RequestException) -> bool:
+        if isinstance(exc, (requests.exceptions.ReadTimeout, requests.exceptions.ChunkedEncodingError)):
+            return True
+        return (isinstance(exc, requests.exceptions.SSLError) and
+                "UNEXPECTED_EOF_WHILE_READING" in str(exc))
+
+    def _new_session(self, trust_env: bool) -> None:
+        self.session.close()
+        self.session = requests.Session()
+        self.session.trust_env = trust_env
+
     def _request(self, method: str, url: str, **kwargs) -> requests.Response:
         token = self.account.token.strip()
         accept = kwargs.pop("accept", None)
@@ -76,21 +89,25 @@ class GitContentsBackupClient:
             headers["X-GitHub-Api-Version"] = "2022-11-28"
         else:
             kwargs.setdefault("params", {})["access_token"] = token
-        try:
-            response = self.session.request(method, url, headers=headers, timeout=(10, 60), **kwargs)
-        except requests.RequestException as exc:
-            if not self._can_retry_direct(method, url, exc):
-                raise RemoteBackupError(str(exc).replace(token, "[redacted]")) from exc
-            direct = requests.Session()
-            direct.trust_env = False
+        attempts = 3 if method == "GET" and self._owns_session else 1
+        used_direct_fallback = False
+        for attempt in range(attempts):
             try:
-                response = direct.request(method, url, headers=headers, timeout=(10, 60), **kwargs)
-            except requests.RequestException as direct_exc:
-                direct.close()
-                detail = str(direct_exc).replace(token, "[redacted]")
-                raise RemoteBackupError(f"Proxy TLS failed; direct connection failed: {detail}") from direct_exc
-            self.session.close()
-            self.session = direct
+                response = self.session.request(method, url, headers=headers, timeout=(10, 60), **kwargs)
+                break
+            except requests.RequestException as exc:
+                switch_direct = self._can_retry_direct(method, url, exc)
+                retry = switch_direct or self._transient_read_error(exc)
+                if method == "GET" and self._owns_session and retry and attempt + 1 < attempts:
+                    if switch_direct:
+                        used_direct_fallback = True
+                    self._new_session(False if switch_direct else self.session.trust_env)
+                    time.sleep(min(2.0, 0.5 * (2 ** attempt)))
+                    continue
+                detail = str(exc).replace(token, "[redacted]")
+                if used_direct_fallback:
+                    detail = f"Proxy TLS failed; direct connection failed after retries: {detail}"
+                raise RemoteBackupError(detail) from exc
         if not response.ok and response.status_code != 404:
             detail = ""
             try:
@@ -167,6 +184,13 @@ class GitContentsBackupClient:
     def download(self, name: str, target: str | Path) -> None:
         if not BACKUP_NAME.fullmatch(name):
             raise RemoteBackupError("Invalid backup name")
+        if self.account.provider == "github":
+            response = self._request("GET", self._contents_url(name), params={"ref": self._branch()},
+                                     accept="application/vnd.github.raw+json")
+            if response.status_code == 404:
+                raise RemoteBackupError("Backup no longer exists")
+            Path(target).write_bytes(response.content)
+            return
         response = self._request("GET", self._contents_url(name), params={"ref": self._branch()})
         if response.status_code == 404:
             raise RemoteBackupError("Backup no longer exists")
@@ -174,12 +198,6 @@ class GitContentsBackupClient:
         content = item.get("content")
         if content and item.get("encoding") == "base64":
             data = base64.b64decode(content, validate=False)
-        elif self.account.provider == "github":
-            raw = self._request("GET", self._contents_url(name), params={"ref": self._branch()},
-                                accept="application/vnd.github.raw+json")
-            if raw.status_code == 404:
-                raise RemoteBackupError("Backup no longer exists")
-            data = raw.content
         elif item.get("download_url"):
             download_url = item["download_url"]
             parsed = urlparse(download_url)
