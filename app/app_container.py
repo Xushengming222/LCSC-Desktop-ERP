@@ -19,6 +19,7 @@ from .data.image_store import ComponentImageStore
 from .data.inventory_repository import InventoryRepositoryImpl
 from .data.preferences import UserPreferencesRepository
 from .data.remote_data_source import LcscCatalogRemoteDataSource
+from .data.remote_backup import BackupAccountsStore
 from .db.database import open_connection
 from .db.dao import (
     ComponentDao,
@@ -34,8 +35,8 @@ from .viewmodels.inventory_viewmodel import InventoryViewModel
 from .viewmodels.search_viewmodel import SearchViewModel
 from .viewmodels.settings_viewmodel import SettingsViewModel
 
-APP_VERSION_NAME = "desktop-1.0.0"
-APP_VERSION_CODE = "1"
+APP_VERSION_NAME = "desktop-1.1.0"
+APP_VERSION_CODE = "2"
 
 
 class AppContainer:
@@ -133,6 +134,10 @@ class AppContainer:
             inventory_backup_manager=self._backup_manager,
             translator=translator(),
             thread_pool=self._thread_pool,
+            remote_store=BackupAccountsStore(self._data_dir / "remote_backup.json"),
+            data_dir=self._data_dir,
+            inventory_repository=self._inventory_repository,
+            db_connection=self._conn,
         )
 
     # ---- transaction helper for backup restore ----
@@ -147,6 +152,8 @@ class AppContainer:
 
     # ---- shutdown ----
     def close(self) -> None:
+        self.settings_view_model._remote_timer.stop()
+        self._thread_pool.waitForDone()
         try:
             self._conn.commit()
         except Exception:

@@ -14,6 +14,7 @@ venv/
 
 # Local application data and configuration
 config.ini
+remote_backup.json
 *.db
 *.db-shm
 *.db-wal

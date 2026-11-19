@@ -28,6 +28,7 @@ from ..data.preferences import LANGUAGE_EN, LANGUAGE_ZH
 from ..i18n import tr
 from ..viewmodels.settings_viewmodel import SettingsViewModel
 from .widgets import Card, Heading, OutlineButton, Subtitle
+from .remote_backup_widget import RemoteBackupWidget
 
 
 class SettingsPage(QWidget):
@@ -89,6 +90,9 @@ class SettingsPage(QWidget):
         self._backup_message.setWordWrap(True)
         self._backup_card.addWidget(self._backup_message)
         root.addWidget(self._backup_card)
+
+        self._remote_card = RemoteBackupWidget(self._vm)
+        root.addWidget(self._remote_card)
 
         # Data directory
         self._datadir_card = Card()

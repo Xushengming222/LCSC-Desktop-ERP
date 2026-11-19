@@ -11,6 +11,7 @@ import io
 import logging
 import re
 import time
+from datetime import datetime
 from pathlib import Path
 
 from openpyxl import Workbook, load_workbook
@@ -65,6 +66,7 @@ class InventoryBackupManager:
         self,
         path: str | Path,
         on_components_progress=None,
+        enrich_components: bool = True,
     ) -> str | None:
         try:
             workbook = Workbook()
@@ -133,7 +135,7 @@ class InventoryBackupManager:
             )
             for index, item in enumerate(components):
                 row_index = index + 2
-                export_item = self._enrich_component_for_export_if_needed(item)
+                export_item = self._enrich_component_for_export_if_needed(item) if enrich_components else item
                 self._write_row(
                     comp_sheet,
                     row_index,
@@ -197,29 +199,41 @@ class InventoryBackupManager:
             return str(error) or "backup import open failed"
 
         try:
-            meta_sheet = workbook["meta"] if "meta" in workbook.sheetnames else None
+            meta_sheet = workbook["meta"] if "meta" in workbook.sheetnames else workbook["元数据"] if "元数据" in workbook.sheetnames else None
             if meta_sheet is None:
                 return "unsupported backup version"
-            schema_version = self._cell_as_string(meta_sheet.cell(row=1, column=2))
+            schema_version = ""
+            for row_index in range(1, min(meta_sheet.max_row, 20) + 1):
+                key = self._cell_as_string(meta_sheet.cell(row=row_index, column=1))
+                if key in ("schemaVersion", "schema版本", "schema"):
+                    schema_version = self._cell_as_string(meta_sheet.cell(row=row_index, column=2))
+                    break
             try:
-                if int(schema_version) != _SCHEMA_VERSION:
+                if int(schema_version) not in (1, 2):
                     return "unsupported backup version"
             except (ValueError, TypeError):
                 return "unsupported backup version"
 
+            sheet_names = (("storage_locations", "库位"), ("components", "物料"), ("inventory_items", "库存"))
+            if any(not any(name in workbook.sheetnames for name in alternatives) for alternatives in sheet_names):
+                return "backup is missing an inventory sheet"
+
             storage_locations = self._read_storage_locations(
-                workbook["storage_locations"] if "storage_locations" in workbook.sheetnames else None
+                workbook["storage_locations"] if "storage_locations" in workbook.sheetnames else workbook["库位"] if "库位" in workbook.sheetnames else None
             )
             recent_location_colors = self._read_recent_location_colors(meta_sheet)
-            comp_sheet = workbook["components"] if "components" in workbook.sheetnames else None
+            comp_sheet = workbook["components"] if "components" in workbook.sheetnames else workbook["物料"] if "物料" in workbook.sheetnames else None
             preview_images = self._extract_preview_images(comp_sheet)
             imported_components = self._read_components(
                 comp_sheet, preview_images, on_components_progress
             )
             components = [row.entity for row in imported_components]
             inventory_items = self._read_inventory_items(
-                workbook["inventory_items"] if "inventory_items" in workbook.sheetnames else None
+                workbook["inventory_items"] if "inventory_items" in workbook.sheetnames else workbook["库存"] if "库存" in workbook.sheetnames else None,
+                components, storage_locations,
             )
+            if not storage_locations and inventory_items:
+                raise ValueError("backup contains inventory without locations")
 
             self._run_restore_transaction(storage_locations, components, inventory_items)
 
@@ -319,6 +333,8 @@ class InventoryBackupManager:
             return []
         result: list[StorageLocationEntity] = []
         for row in self._data_rows(sheet):
+            if not (row.string("code") or "").strip():
+                raise ValueError(f"location row {row.row_index} has no code")
             result.append(
                 StorageLocationEntity(
                     id=row.long("id"),
@@ -326,6 +342,9 @@ class InventoryBackupManager:
                     display_name=row.string_or_null("displayName"),
                     color_hex=row.string_or_null("colorHex"),
                     sort_mode=row.string_or_null("sortMode") or StorageLocationSortMode.NONE,
+                    inbound_category=row.string_or_null("inboundCategory"),
+                    inbound_package_name=row.string_or_null("inboundPackageName"),
+                    inbound_profile_updated_at=row.long("inboundProfileUpdatedAt"),
                     remark=row.string_or_null("remark"),
                     created_at=row.long("createdAt"),
                 )
@@ -372,6 +391,8 @@ class InventoryBackupManager:
         result: list[ImportedComponentRow] = []
         for index, row in enumerate(rows):
             part_number = (row.string("partNumber") or "").strip().upper()
+            if not part_number:
+                raise ValueError(f"component row {row.row_index} has no part number")
             image_local_path = None
             preview = preview_images.get(row.row_index)
             if preview and part_number:
@@ -385,7 +406,7 @@ class InventoryBackupManager:
                     entity=ComponentEntity(
                         id=row.long("id"),
                         part_number=part_number,
-                        mpn=None,
+                        mpn=row.string_or_null("mpn"),
                         name=row.string_or_null("name"),
                         brand=row.string_or_null("brand"),
                         package_name=row.string_or_null("packageName"),
@@ -403,16 +424,22 @@ class InventoryBackupManager:
                 on_components_progress(index + 1, total)
         return result
 
-    def _read_inventory_items(self, sheet) -> list[InventoryItemEntity]:
+    def _read_inventory_items(self, sheet, components: list[ComponentEntity], storage_locations: list[StorageLocationEntity]) -> list[InventoryItemEntity]:
         if sheet is None:
             return []
+        component_by_part = {item.part_number: item.id for item in components}
+        location_by_code = {item.code: item.id for item in storage_locations}
         result: list[InventoryItemEntity] = []
         for row in self._data_rows(sheet):
+            component_id = row.long("componentId") or component_by_part.get((row.string("partNumber") or "").strip().upper(), 0)
+            location_id = row.long("locationId") or location_by_code.get((row.string("locationCode") or "").strip(), 0)
+            if not component_id or not location_id:
+                raise ValueError(f"inventory row {row.row_index} has an unknown component or location")
             result.append(
                 InventoryItemEntity(
                     id=row.long("id"),
-                    component_id=row.long("componentId"),
-                    location_id=row.long("locationId"),
+                    component_id=component_id,
+                    location_id=location_id,
                     quantity=row.int_value("quantity"),
                     last_inbound_at=row.long("lastInboundAt"),
                     updated_at=row.long("updatedAt"),
@@ -529,6 +556,17 @@ class InventoryBackupManager:
 
 
 class _ExcelRow:
+    _ALIASES = {
+        "code": "编号", "displayName": "显示名", "colorHex": "颜色",
+        "sortMode": "排序方式", "remark": "备注", "createdAt": "创建时间",
+        "inboundCategory": "入库类目", "inboundPackageName": "入库封装",
+        "inboundProfileUpdatedAt": "画像更新时间",
+        "partNumber": "料号", "mpn": "厂牌料号", "name": "名称",
+        "brand": "品牌", "packageName": "封装", "category": "类目",
+        "specJson": "规格", "description": "描述", "sourceUrl": "商品链接",
+        "updatedAt": "更新时间", "quantity": "数量",
+        "locationCode": "库位编号", "lastInboundAt": "最近入库时间",
+    }
     def __init__(self, headers: dict[str, int], row, row_index: int) -> None:
         self._headers = headers
         self._row = row
@@ -536,6 +574,8 @@ class _ExcelRow:
 
     def _cell_value(self, header: str) -> str | None:
         col_index = self._headers.get(header)
+        if col_index is None:
+            col_index = self._headers.get(self._ALIASES.get(header, ""))
         if col_index is None:
             return None
         cell = self._row[col_index - 1] if col_index - 1 < len(self._row) else None
@@ -559,7 +599,10 @@ class _ExcelRow:
         try:
             return int(float(value))
         except (ValueError, TypeError):
-            return 0
+            try:
+                return int(datetime.fromisoformat(value).timestamp() * 1000)
+            except ValueError:
+                return 0
 
     def int_value(self, header: str) -> int:
         return self.long(header)
