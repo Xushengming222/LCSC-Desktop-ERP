@@ -12,7 +12,7 @@ from unittest.mock import patch
 import requests
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
-from openpyxl import Workbook
+from openpyxl import Workbook, load_workbook
 from PySide6.QtWidgets import QApplication
 
 from app.app_container import AppContainer
@@ -79,14 +79,17 @@ class RemoteBackupTests(unittest.TestCase):
         meta.append(["键", "值"])
         meta.append(["schema版本", "2"])
         locations = book.create_sheet("库位")
-        locations.append(["id", "编号", "显示名", "颜色", "排序方式", "备注", "创建时间"])
-        locations.append([1, "A1", "Rack", "#C8E6C9", "", "", "2026-11-19 12:43"])
+        locations.append(["编号", "显示名", "颜色", "排序方式", "备注", "创建时间"])
+        locations.append(["A1", "Rack", "#C8E6C9", "", "", "2026-11-19 12:43"])
+        locations.append(["B2", "Shelf", "#B3E5FC", "", "", "2026-11-19 12:44"])
         components = book.create_sheet("物料")
-        components.append(["id", "料号", "名称", "品牌", "封装", "类目", "规格", "描述", "商品链接", "更新时间"])
-        components.append([2, "C123", "Resistor", "Brand", "0603", "R", "{}", "Test", "", 1000])
+        components.append(["料号", "名称", "品牌", "封装", "类目", "规格", "描述", "商品链接", "更新时间"])
+        components.append(["C123", "Resistor", "Brand", "0603", "R", "{}", "Test", "", 1000])
+        components.append(["C456", "Capacitor", "Brand", "0805", "C", "{}", "Test", "", 1000])
         inventory = book.create_sheet("库存")
-        inventory.append(["id", "料号", "库位编号", "数量", "最近入库时间", "更新时间"])
-        inventory.append([3, "C123", "A1", 12, 1000, 1000])
+        inventory.append(["料号", "库位编号", "数量", "最近入库时间", "更新时间"])
+        inventory.append(["C123", "A1", 12, 1000, 1000])
+        inventory.append(["C456", "B2", 7, 1000, 1000])
         book.save(path)
 
     def test_contents_roundtrip_and_token_is_not_logged(self):
@@ -300,7 +303,39 @@ class RemoteBackupTests(unittest.TestCase):
                 self._phone_workbook(path)
                 self.assertIsNone(container._backup_manager.import_from_path(path))
                 self.assertEqual(container._conn.execute("SELECT quantity FROM inventory_item").fetchone()[0], 12)
+                self.assertEqual(container._conn.execute("SELECT COUNT(*) FROM inventory_item").fetchone()[0], 2)
+                self.assertEqual(container._conn.execute("SELECT COUNT(*) FROM component_master").fetchone()[0], 2)
+                self.assertEqual(container._conn.execute("SELECT COUNT(*) FROM storage_location").fetchone()[0], 2)
+                self.assertFalse(container._conn.execute("PRAGMA foreign_key_check").fetchall())
                 self.assertGreater(container._conn.execute("SELECT createdAt FROM storage_location").fetchone()[0], 1_700_000_000_000)
+            finally:
+                for _ in range(4):
+                    app.processEvents()
+                container.settings_view_model._remote_timer.stop()
+                container._thread_pool.waitForDone()
+                container.close()
+
+    def test_import_preserves_explicit_ids_and_generates_missing_ids(self):
+        app = QApplication.instance() or QApplication([])
+        with TemporaryDirectory() as root:
+            path = Path(root) / "mixed.xlsx"
+            self._phone_workbook(path)
+            workbook = load_workbook(path)
+            for sheet_name, first_id in (("库位", 10), ("物料", 20), ("库存", 30)):
+                sheet = workbook[sheet_name]
+                sheet.insert_cols(1)
+                sheet.cell(1, 1, "id")
+                sheet.cell(2, 1, first_id)
+            workbook.save(path)
+            container = AppContainer(Path(root) / "data", project_dir=root)
+            try:
+                self.assertIsNone(container._backup_manager.import_from_path(path))
+                for table, expected in (("storage_location", [10, 11]),
+                                        ("component_master", [20, 21]),
+                                        ("inventory_item", [30, 31])):
+                    actual = [row[0] for row in container._conn.execute(f"SELECT id FROM {table} ORDER BY id")]
+                    self.assertEqual(actual, expected)
+                self.assertFalse(container._conn.execute("PRAGMA foreign_key_check").fetchall())
             finally:
                 for _ in range(4):
                     app.processEvents()

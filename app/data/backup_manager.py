@@ -332,12 +332,12 @@ class InventoryBackupManager:
         if sheet is None:
             return []
         result: list[StorageLocationEntity] = []
-        for row in self._data_rows(sheet):
+        for row, row_id in self._rows_with_ids(self._data_rows(sheet)):
             if not (row.string("code") or "").strip():
                 raise ValueError(f"location row {row.row_index} has no code")
             result.append(
                 StorageLocationEntity(
-                    id=row.long("id"),
+                    id=row_id,
                     code=row.string("code") or "",
                     display_name=row.string_or_null("displayName"),
                     color_hex=row.string_or_null("colorHex"),
@@ -389,7 +389,7 @@ class InventoryBackupManager:
         if total > 0 and on_components_progress:
             on_components_progress(0, total)
         result: list[ImportedComponentRow] = []
-        for index, row in enumerate(rows):
+        for index, (row, row_id) in enumerate(self._rows_with_ids(rows)):
             part_number = (row.string("partNumber") or "").strip().upper()
             if not part_number:
                 raise ValueError(f"component row {row.row_index} has no part number")
@@ -404,7 +404,7 @@ class InventoryBackupManager:
             result.append(
                 ImportedComponentRow(
                     entity=ComponentEntity(
-                        id=row.long("id"),
+                        id=row_id,
                         part_number=part_number,
                         mpn=row.string_or_null("mpn"),
                         name=row.string_or_null("name"),
@@ -429,15 +429,19 @@ class InventoryBackupManager:
             return []
         component_by_part = {item.part_number: item.id for item in components}
         location_by_code = {item.code: item.id for item in storage_locations}
+        component_ids = {item.id for item in components}
+        location_ids = {item.id for item in storage_locations}
         result: list[InventoryItemEntity] = []
-        for row in self._data_rows(sheet):
-            component_id = row.long("componentId") or component_by_part.get((row.string("partNumber") or "").strip().upper(), 0)
-            location_id = row.long("locationId") or location_by_code.get((row.string("locationCode") or "").strip(), 0)
-            if not component_id or not location_id:
+        for row, row_id in self._rows_with_ids(self._data_rows(sheet)):
+            part_number = (row.string("partNumber") or "").strip().upper()
+            location_code = (row.string("locationCode") or "").strip()
+            component_id = component_by_part.get(part_number, 0) if part_number else row.long("componentId")
+            location_id = location_by_code.get(location_code, 0) if location_code else row.long("locationId")
+            if component_id not in component_ids or location_id not in location_ids:
                 raise ValueError(f"inventory row {row.row_index} has an unknown component or location")
             result.append(
                 InventoryItemEntity(
-                    id=row.long("id"),
+                    id=row_id,
                     component_id=component_id,
                     location_id=location_id,
                     quantity=row.int_value("quantity"),
@@ -446,6 +450,20 @@ class InventoryBackupManager:
                 )
             )
         return result
+
+    @staticmethod
+    def _rows_with_ids(rows):
+        """Assign stable positive IDs when a mobile workbook omits ID columns."""
+        row_ids = [row.long("id") for row in rows]
+        explicit_ids = [row_id for row_id in row_ids if row_id > 0]
+        if len(explicit_ids) != len(set(explicit_ids)):
+            raise ValueError("backup contains duplicate IDs")
+        next_id = max(explicit_ids, default=0) + 1
+        for row, row_id in zip(rows, row_ids):
+            if row_id <= 0:
+                row_id = next_id
+                next_id += 1
+            yield row, row_id
 
     def _data_rows(self, sheet):
         if sheet.max_row <= 1:
