@@ -13,7 +13,7 @@ import requests
 os.environ["QT_QPA_PLATFORM"] = "offscreen"
 
 from openpyxl import Workbook, load_workbook
-from PySide6.QtWidgets import QApplication
+from PySide6.QtWidgets import QApplication, QMessageBox
 
 from app.app_container import AppContainer
 from app.data.remote_backup import BackupAccount, BackupAccountsStore, GitContentsBackupClient, RemoteBackupError
@@ -218,6 +218,9 @@ class RemoteBackupTests(unittest.TestCase):
             vm = container.settings_view_model
             widget = RemoteBackupWidget(vm)
             try:
+                self.assertTrue(widget.retention.isCheckable())
+                self.assertEqual([widget.retention_count.itemData(i) for i in range(widget.retention_count.count())],
+                                 [5, 10, 15, 20])
                 vm._remote_backups = [
                     {"name": f"lcsc_inventory_backup_20261119_0{i}00.xlsx", "sha": "old", "size": 10}
                     for i in range(3)
@@ -238,6 +241,38 @@ class RemoteBackupTests(unittest.TestCase):
                 container._thread_pool.waitForDone()
                 container.close()
 
+    def test_retention_button_and_limit_selection(self):
+        app = QApplication.instance() or QApplication([])
+        with TemporaryDirectory() as root:
+            container = AppContainer(Path(root) / "data", project_dir=root)
+            vm = container.settings_view_model
+            widget = RemoteBackupWidget(vm)
+            try:
+                self.assertFalse(widget.retention.isChecked())
+                widget.retention_count.setCurrentIndex(widget.retention_count.findData(10))
+                self.assertEqual(vm.ui_state.remote_retention_count, 10)
+                with patch("app.ui.remote_backup_widget.QMessageBox.question", return_value=QMessageBox.No):
+                    widget.retention.click()
+                self.assertFalse(widget.retention.isChecked())
+                self.assertFalse(vm.ui_state.remote_auto_retention)
+                with patch("app.ui.remote_backup_widget.QMessageBox.question", return_value=QMessageBox.Yes):
+                    widget.retention.click()
+                self.assertTrue(widget.retention.isChecked())
+                with patch("app.ui.remote_backup_widget.QMessageBox.question", return_value=QMessageBox.No):
+                    widget.retention_count.setCurrentIndex(widget.retention_count.findData(5))
+                self.assertEqual(vm.ui_state.remote_retention_count, 10)
+                self.assertEqual(widget.retention_count.currentData(), 10)
+                with patch("app.ui.remote_backup_widget.QMessageBox.question", return_value=QMessageBox.Yes):
+                    widget.retention_count.setCurrentIndex(widget.retention_count.findData(5))
+                self.assertEqual(vm.ui_state.remote_retention_count, 5)
+            finally:
+                widget.close()
+                for _ in range(4):
+                    app.processEvents()
+                vm._remote_timer.stop()
+                container._thread_pool.waitForDone()
+                container.close()
+
     def test_retention_setting_prunes_on_enable_and_after_upload(self):
         app = QApplication.instance() or QApplication([])
         with TemporaryDirectory() as root:
@@ -248,7 +283,7 @@ class RemoteBackupTests(unittest.TestCase):
             session = FakeSession()
             session.files = {
                 f"lcsc_inventory_backup_20261119_{hour:02d}00.xlsx": b"old"
-                for hour in range(7)
+                for hour in range(12)
             }
 
             def client(selected):
@@ -264,20 +299,39 @@ class RemoteBackupTests(unittest.TestCase):
 
             try:
                 with patch("app.viewmodels.settings_viewmodel.GitContentsBackupClient", client):
+                    vm.set_retention_count(10)
                     vm.set_auto_retention(True)
                     finish()
                     self.assertTrue(vm.ui_state.remote_auto_retention)
-                    self.assertEqual(len(session.files), 5)
+                    self.assertEqual(vm.ui_state.remote_retention_count, 10)
+                    self.assertEqual(len(session.files), 10)
                     vm.upload_remote()
                     finish()
+                    self.assertEqual(len(session.files), 10)
+                    self.assertEqual(len(vm.ui_state.remote_backups), 10)
+                    vm.set_retention_count(5)
+                    finish()
                     self.assertEqual(len(session.files), 5)
-                    self.assertEqual(len(vm.ui_state.remote_backups), 5)
+                    vm.set_retention_count(20)
+                    finish()
+                    session.files.update({
+                        f"lcsc_inventory_backup_20261120_{hour:02d}00.xlsx": b"new"
+                        for hour in range(16)
+                    })
+                    vm.upload_remote()
+                    finish()
+                    self.assertEqual(len(session.files), 20)
+                    vm.set_retention_count(15)
+                    finish()
+                    self.assertEqual(len(session.files), 15)
                     chosen = vm.ui_state.remote_backups[-1]["name"]
                     vm.delete_remote([chosen])
                     finish()
                     self.assertNotIn(chosen, session.files)
-                    self.assertEqual(len(vm.ui_state.remote_backups), 4)
-                self.assertTrue(BackupAccountsStore(Path(root) / "data" / "remote_backup.json").load()[1]["auto_retention"])
+                    self.assertEqual(len(vm.ui_state.remote_backups), 14)
+                saved = BackupAccountsStore(Path(root) / "data" / "remote_backup.json").load()[1]
+                self.assertTrue(saved["auto_retention"])
+                self.assertEqual(saved["retention_count"], 15)
             finally:
                 vm._remote_timer.stop()
                 for _ in range(4):

@@ -119,6 +119,25 @@ QPushButton#outline {{
 }}
 QPushButton#outline:hover {{ background: {PRIMARY_CONTAINER}; }}
 
+QPushButton#retentionToggle {{
+    background: {SURFACE};
+    color: {PRIMARY};
+    border: 1px solid {PRIMARY};
+    padding: 7px 14px;
+    border-radius: 6px;
+}}
+QPushButton#retentionToggle:hover:!checked {{ background: {PRIMARY_CONTAINER}; }}
+QPushButton#retentionToggle:checked {{
+    background: {PRIMARY};
+    color: {ON_PRIMARY};
+    border: 1px solid {PRIMARY};
+}}
+QPushButton#retentionToggle:disabled {{
+    background: {OUTLINE_VARIANT};
+    color: {OUTLINE};
+    border-color: {OUTLINE_VARIANT};
+}}
+
 QPushButton#textBtn {{
     background: transparent;
     color: {PRIMARY};

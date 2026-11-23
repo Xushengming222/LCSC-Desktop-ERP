@@ -85,9 +85,21 @@ class RemoteBackupWidget(Card):
         self.multi_hint = QLabel()
         self.multi_hint.setWordWrap(True)
         self.addWidget(self.multi_hint)
-        self.retention = QCheckBox()
+        retention_row = QHBoxLayout()
+        self.retention = OutlineButton()
+        self.retention.setObjectName("retentionToggle")
+        self.retention.setCheckable(True)
         self.retention.toggled.connect(self._set_retention)
-        self.addWidget(self.retention)
+        retention_row.addWidget(self.retention)
+        self.retention_count_label = QLabel()
+        retention_row.addWidget(self.retention_count_label)
+        self.retention_count = QComboBox()
+        for count in SettingsViewModel.RETENTION_COUNTS:
+            self.retention_count.addItem(tr("remote_retention_count_option").format(count=count), count)
+        self.retention_count.currentIndexChanged.connect(self._set_retention_count)
+        retention_row.addWidget(self.retention_count)
+        retention_row.addStretch()
+        self.addLayout(retention_row)
         self.retention_hint = QLabel()
         self.retention_hint.setWordWrap(True)
         self.addWidget(self.retention_hint)
@@ -188,7 +200,7 @@ class RemoteBackupWidget(Card):
 
     def _set_retention(self, enabled: bool) -> None:
         if enabled and QMessageBox.question(
-            self, tr("remote_backup"), tr("remote_retention_confirm"),
+            self, tr("remote_backup"), tr("remote_retention_confirm").format(count=self.retention_count.currentData()),
             QMessageBox.Yes | QMessageBox.No,
         ) != QMessageBox.Yes:
             self.retention.blockSignals(True)
@@ -196,6 +208,24 @@ class RemoteBackupWidget(Card):
             self.retention.blockSignals(False)
             return
         self.vm.set_auto_retention(enabled)
+
+    def _set_retention_count(self, index: int) -> None:
+        if index < 0:
+            return
+        count = self.retention_count.itemData(index)
+        state = self.vm.ui_state
+        if count == state.remote_retention_count:
+            return
+        if state.remote_auto_retention and count < state.remote_retention_count:
+            if QMessageBox.question(
+                self, tr("remote_backup"), tr("remote_retention_change_confirm").format(count=count),
+                QMessageBox.Yes | QMessageBox.No,
+            ) != QMessageBox.Yes:
+                self.retention_count.blockSignals(True)
+                self.retention_count.setCurrentIndex(self.retention_count.findData(state.remote_retention_count))
+                self.retention_count.blockSignals(False)
+                return
+        self.vm.set_retention_count(count)
 
     def _delete_backups(self) -> None:
         names = [item.text() for item in self.backups.selectedItems()]
@@ -224,10 +254,17 @@ class RemoteBackupWidget(Card):
             checkbox.blockSignals(True)
             checkbox.setChecked(value)
             checkbox.blockSignals(False)
+        self.retention_count.blockSignals(True)
+        self.retention_count.setCurrentIndex(self.retention_count.findData(state.remote_retention_count))
+        self.retention_count.blockSignals(False)
         self.enabled.setText(tr("remote_enable"))
         self.multi.setText(tr("remote_multi"))
         self.multi_hint.setText(tr("remote_multi_hint"))
-        self.retention.setText(tr("remote_retention"))
+        self.retention.setText(tr("remote_retention_on") if state.remote_auto_retention else tr("remote_retention_off"))
+        self.retention_count_label.setText(tr("remote_retention_count"))
+        for index in range(self.retention_count.count()):
+            count = self.retention_count.itemData(index)
+            self.retention_count.setItemText(index, tr("remote_retention_count_option").format(count=count))
         self.retention_hint.setText(tr("remote_retention_hint"))
         self.account_title.setText(tr("remote_accounts"))
         self.accounts.blockSignals(True)
@@ -269,3 +306,4 @@ class RemoteBackupWidget(Card):
             button.setEnabled(bool(state.remote_accounts) and not state.remote_busy)
         self.add_btn.setEnabled(not state.remote_busy)
         self.retention.setEnabled(not state.remote_busy)
+        self.retention_count.setEnabled(not state.remote_busy)

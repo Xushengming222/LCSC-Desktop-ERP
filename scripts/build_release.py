@@ -84,7 +84,7 @@ def assemble_release() -> None:
         shutil.copy2(ROOT / filename, package / filename)
     copy_licenses(package / "licenses")
     (package / "README.txt").write_text(
-        "LCSC Desktop ERP 1.2.4\n\n"
+        "LCSC Desktop ERP 1.2.5\n\n"
         "Extract the entire folder, then run LCSC-Desktop-ERP.exe.\n"
         "Keep the _internal folder beside the executable.\n"
         "Data and settings: %APPDATA%\\LCSC_ERP\n"

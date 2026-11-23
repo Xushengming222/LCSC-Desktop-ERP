@@ -91,6 +91,7 @@ class SettingsUiState:
     remote_enabled: bool = False
     remote_multi_account: bool = False
     remote_auto_retention: bool = False
+    remote_retention_count: int = 5
     remote_busy: bool = False
     remote_message: str = ""
     remote_last_success: str = ""
@@ -99,6 +100,8 @@ class SettingsUiState:
 
 
 class SettingsViewModel(ViewModel):
+    RETENTION_COUNTS = (5, 10, 15, 20)
+
     def __init__(
         self,
         user_preferences_repository: UserPreferencesRepository,
@@ -165,6 +168,7 @@ class SettingsViewModel(ViewModel):
             remote_enabled=bool(self._remote_config.get("enabled", False)),
             remote_multi_account=bool(self._remote_config.get("multi_account", False)),
             remote_auto_retention=bool(self._remote_config.get("auto_retention", False)),
+            remote_retention_count=self._retention_count(),
             remote_busy=self._remote_busy,
             remote_message=self._remote_message,
             remote_last_success=str(self._remote_config.get("last_success", "")),
@@ -315,6 +319,18 @@ class SettingsViewModel(ViewModel):
         if enabled and self._remote_accounts:
             self.prune_remote()
 
+    def _retention_count(self) -> int:
+        count = self._remote_config.get("retention_count", 5)
+        return count if type(count) is int and count in self.RETENTION_COUNTS else 5
+
+    def set_retention_count(self, count: int) -> None:
+        if count not in self.RETENTION_COUNTS:
+            raise ValueError("Unsupported backup retention count")
+        self._remote_config["retention_count"] = count
+        self._save_remote()
+        if self._remote_config.get("auto_retention") and self._remote_accounts:
+            self.prune_remote()
+
     def _selected_account(self) -> BackupAccount:
         if not self._remote_accounts:
             raise ValueError(tr("remote_no_accounts"))
@@ -362,6 +378,7 @@ class SettingsViewModel(ViewModel):
         change_snapshot = self._db_connection.total_changes if self._db_connection else 0
         fingerprint_snapshot = self._data_fingerprint()
         auto_retention = bool(self._remote_config.get("auto_retention"))
+        retention_count = self._retention_count()
         selected_account = self._selected_account()
 
         def work():
@@ -381,7 +398,7 @@ class SettingsViewModel(ViewModel):
                         uploaded.append(f"{account.label or account.repo}: {name}")
                         if auto_retention:
                             try:
-                                client.retain_latest(5)
+                                client.retain_latest(retention_count)
                             except Exception as exc:
                                 prune_failures.append(f"{account.label or account.repo}: {exc}")
                         if account == selected_account:
@@ -444,14 +461,16 @@ class SettingsViewModel(ViewModel):
             self._do_recompute()
             return
 
+        count = self._retention_count()
+
         def work():
             client = GitContentsBackupClient(account)
-            removed = client.retain_latest(5)
+            removed = client.retain_latest(count)
             return removed, client.list_backups()
 
         def done(result):
             removed, self._remote_backups = result
-            return tr("remote_pruned").format(count=removed)
+            return tr("remote_pruned").format(count=removed, limit=count)
 
         self._start_remote(work, done)
 

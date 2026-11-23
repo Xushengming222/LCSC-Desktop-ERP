@@ -35,8 +35,8 @@ from .viewmodels.inventory_viewmodel import InventoryViewModel
 from .viewmodels.search_viewmodel import SearchViewModel
 from .viewmodels.settings_viewmodel import SettingsViewModel
 
-APP_VERSION_NAME = "desktop-1.2.4"
-APP_VERSION_CODE = "7"
+APP_VERSION_NAME = "desktop-1.2.5"
+APP_VERSION_CODE = "8"
 
 
 class AppContainer:
